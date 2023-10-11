@@ -1,6 +1,8 @@
 import configparser
+import logging
 import os
 import sys
+import platform
 import datetime
 import time
 from pathlib import PurePath
@@ -34,19 +36,23 @@ class ResourcesConfiguration:
         self.config_filename = None
         self.config = None
         self.system_ants_backend = 'python'
+        self.accepted_image_format = ['nii', 'nii.gz', 'mhd', 'mha', 'nrrd']
 
         self.diagnosis_task = None
         self.diagnosis_full_trace = False
         self.caller = None
 
         self.gpu_id = "-1"
-        self.input_volume_filename = None
+        self.input_folder = None
         self.output_folder = None
         self.model_folder = None
+        self.pipeline_filename = None
 
         self.predictions_non_overlapping = True
         self.predictions_reconstruction_method = None
         self.predictions_reconstruction_order = None
+        self.predictions_use_stripped_data = False
+        self.predictions_use_registered_data = False
 
         self.runtime_brain_mask_filepath = ''
         self.runtime_tumor_mask_filepath = ''
@@ -323,7 +329,7 @@ class ResourcesConfiguration:
                 self.caller = self.config['Default']['caller'].split('#')[0].strip()
 
     def __parse_system_parameters(self):
-        self.ants_root = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../', 'ANTsX')
+        self.ants_root = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'ANTs')
         self.ants_reg_dir = ''
         self.ants_apply_dir = ''
 
@@ -332,10 +338,10 @@ class ResourcesConfiguration:
                     os.path.isdir(self.config['System']['ants_root'].split('#')[0].strip()):
                 self.ants_root = self.config['System']['ants_root'].split('#')[0].strip()
 
-        if os.path.exists(self.ants_root):
-            os.environ["ANTSPATH"] = os.path.join(self.ants_root, "build/bin/")
-            self.ants_reg_dir = os.path.join(self.ants_root, 'src', 'Scripts')
-            self.ants_apply_dir = os.path.join(self.ants_root, 'build', 'bin')
+        if os.path.exists(self.ants_root) and os.path.exists(os.path.join(self.ants_root, "bin")):
+            os.environ["ANTSPATH"] = os.path.join(self.ants_root, "bin")
+            self.ants_reg_dir = os.path.join(self.ants_root, 'Scripts')
+            self.ants_apply_dir = os.path.join(self.ants_root, 'bin')
             self.system_ants_backend = 'cpp'
         else:
             self.system_ants_backend = 'python'
@@ -344,13 +350,17 @@ class ResourcesConfiguration:
             if self.config['System']['output_folder'].split('#')[0].strip() != '':
                 self.output_folder = self.config['System']['output_folder'].split('#')[0].strip()
 
-        if self.config.has_option('System', 'input_filename'):
-            if self.config['System']['input_filename'].split('#')[0].strip() != '':
-                self.input_volume_filename = self.config['System']['input_filename'].split('#')[0].strip()
+        if self.config.has_option('System', 'input_folder'):
+            if self.config['System']['input_folder'].split('#')[0].strip() != '':
+                self.input_folder = self.config['System']['input_folder'].split('#')[0].strip()
 
         if self.config.has_option('System', 'model_folder'):
             if self.config['System']['model_folder'].split('#')[0].strip() != '':
                 self.model_folder = self.config['System']['model_folder'].split('#')[0].strip()
+
+        if self.config.has_option('System', 'pipeline_filename'):
+            if self.config['System']['pipeline_filename'].split('#')[0].strip() != '':
+                self.pipeline_filename = self.config['System']['pipeline_filename'].split('#')[0].strip()
 
     def __parse_runtime_parameters(self):
         if self.config.has_option('Runtime', 'non_overlapping'):
@@ -364,6 +374,14 @@ class ResourcesConfiguration:
         if self.config.has_option('Runtime', 'reconstruction_order'):
             if self.config['Runtime']['reconstruction_order'].split('#')[0].strip() != '':
                 self.predictions_reconstruction_order = self.config['Runtime']['reconstruction_order'].split('#')[0].strip()
+
+        if self.config.has_option('Runtime', 'use_stripped_data'):
+            if self.config['Runtime']['use_stripped_data'].split('#')[0].strip() != '':
+                self.predictions_use_stripped_data = True if self.config['Runtime']['use_stripped_data'].split('#')[0].strip().lower() == 'true' else False
+
+        if self.config.has_option('Runtime', 'use_registered_data'):
+            if self.config['Runtime']['use_registered_data'].split('#')[0].strip() != '':
+                self.predictions_use_registered_data = True if self.config['Runtime']['use_registered_data'].split('#')[0].strip().lower() == 'true' else False
 
         if self.diagnosis_task == 'neuro_diagnosis':
             self.__parse_runtime_neuro_parameters()
@@ -395,3 +413,6 @@ class ResourcesConfiguration:
         # if self.config.has_option('Mediastinum', 'lymphnodes_segmentation_filename'):
         #     if self.config['Mediastinum']['lymphnodes_segmentation_filename'].split('#')[0].strip() != '':
         #         self.runtime_lymphnodes_mask_filepath = self.config['Mediastinum']['lymphnodes_segmentation_filename'].split('#')[0].strip()
+
+    def get_accepted_image_formats(self) -> list:
+        return self.accepted_image_format

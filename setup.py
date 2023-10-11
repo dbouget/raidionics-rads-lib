@@ -1,5 +1,6 @@
 from setuptools import find_packages, setup
 import platform
+import sys
 
 with open("README.md", "r", errors='ignore') as f:
     long_description = f.read()
@@ -7,19 +8,11 @@ with open("README.md", "r", errors='ignore') as f:
 with open('requirements.txt', 'r', encoding='utf-16', errors='ignore') as ff:
     required = ff.read().splitlines()
 
-if platform.system() == 'Windows':
-    required.append('antspy@https://github.com/SGotla/ANTsPy/releases/download/0.1.7Win64/antspy-0.1.7-cp37-cp37m-win_amd64.whl')
-    required.append('pandas==1.1.5')
-    required.append('scikit-learn==0.24.2')
-    required.append('statsmodels==0.12.2')
-elif platform.system() == 'Darwin':
-    required.append('antspyx@https://github.com/ANTsX/ANTsPy/releases/download/v0.1.8/antspyx-0.1.8-cp37-cp37m-macosx_10_14_x86_64.whl')
-    required.append('pandas==1.1.5')
-    required.append('scikit-learn==0.24.2')
-    required.append('statsmodels==0.12.2')
+if platform.system() == 'Darwin' and platform.processor() == 'arm':   # Specific for Apple M1 chips
+    required.append('scikit-learn')
+    required.append('statsmodels')
 else:
-    required.append('antspyx')
-required.append('raidionicsseg@git+https://github.com/dbouget/raidionics_seg_lib.git@release#egg=raidionicsseg')
+    required.append('antspyx==0.3.8')
 
 setup(
     name='raidionicsrads',
@@ -27,7 +20,10 @@ setup(
         include=[
             'raidionicsrads',
             'raidionicsrads.Utils',
+            'raidionicsrads.Utils.DataStructures',
+            'raidionicsrads.Utils.ReportingStructures',
             'raidionicsrads.Processing',
+            'raidionicsrads.Pipelines',
             'raidionicsrads.NeuroDiagnosis',
             'raidionicsrads.MediastinumDiagnosis',
             'raidionicsrads.Atlases',
@@ -41,8 +37,8 @@ setup(
     },
     install_requires=required,
     include_package_data=True,
-    python_requires=">=3.6, <3.8",
-    version='1.0.0',
+    python_requires=">=3.7",
+    version='1.1.1',
     author='David Bouget (david.bouget@sintef.no)',
     license='BSD 2-Clause',
     description='Raidionics reporting and data system backend (RADS)',

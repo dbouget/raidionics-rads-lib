@@ -115,7 +115,7 @@ class MediastinumDiagnostics:
             thr = class_thresholds[c]
 
             pred_ni = load_nifti_volume(predictions_file)
-            pred = pred_ni.get_data()[:]
+            pred = pred_ni.get_fdata()[:]
 
             final_mask = np.zeros(pred.shape)
             final_mask[pred >= thr] = 1
@@ -132,7 +132,7 @@ class MediastinumDiagnostics:
 
     def __compute_lateralisation(self, volume):
         brain_lateralisation_mask_ni = load_nifti_volume(ResourcesConfiguration.getInstance().neuro_mni_atlas_lateralisation_mask_filepath)
-        brain_lateralisation_mask = brain_lateralisation_mask_ni.get_data()[:]
+        brain_lateralisation_mask = brain_lateralisation_mask_ni.get_fdata()[:]
         pfile = open(self.output_report_filepath, 'a')
 
         # Computing the lateralisation for the center of mass
@@ -179,7 +179,7 @@ class MediastinumDiagnostics:
         pfile = open(self.output_report_filepath, 'a')
 
         lobes_maks_ni = nib.load(ResourcesConfiguration.getInstance().neuro_mni_atlas_lobes_mask_filepath)
-        lobes_mask = lobes_maks_ni.get_data()
+        lobes_mask = lobes_maks_ni.get_fdata()
         lobes_description = pd.read_csv(ResourcesConfiguration.getInstance().neuro_mni_atlas_lobes_description_filepath)
 
         # Computing the lobe location for the center of mass
@@ -238,7 +238,7 @@ class MediastinumDiagnostics:
     def __compute_lymphnodes_statistics(self):
         lymphnodes_ni = load_nifti_volume(self.lymphnodes_mask_filepath)
         spacings = lymphnodes_ni.header.get_zooms()
-        lymphnodes = lymphnodes_ni.get_data()[:]
+        lymphnodes = lymphnodes_ni.get_fdata()[:]
 
         cc_labels = measurements.label(lymphnodes)[0]
         candidates = measurements.find_objects(cc_labels)

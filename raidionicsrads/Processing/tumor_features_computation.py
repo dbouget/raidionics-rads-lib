@@ -5,7 +5,9 @@ from typing import Tuple
 from scipy.ndimage.measurements import center_of_mass
 from scipy.ndimage import measurements
 from skimage.measure import regionprops
-from medpy.metric.binary import hd95
+from scipy.ndimage import binary_closing, _ni_support
+from scipy.ndimage.morphology import distance_transform_edt, binary_erosion,\
+    generate_binary_structure
 
 
 def compute_volume(volume: np.ndarray, spacing: tuple) -> float:
@@ -91,7 +93,7 @@ def compute_multifocality(volume: np.ndarray, spacing: tuple,
                 if lab != max_radius_index:
                     satellite_label = np.zeros(volume.shape)
                     satellite_label[tumor_clusters == (lab + 1)] = 1
-                    dist = hd95(satellite_label, main_tumor_label, voxelspacing=spacing, connectivity=1)
+                    dist = compute_hd95(satellite_label, main_tumor_label, voxelspacing=spacing, connectivity=1)
                     if multifocal_largest_minimum_distance is None:
                         multifocal_largest_minimum_distance = dist
                     elif dist > multifocal_largest_minimum_distance:
@@ -204,3 +206,45 @@ def compute_resectability_index(volume: np.ndarray, resectability_map: np.ndarra
     except Exception as e:
         logging.error('Resectability index computation failed.\n{}'.format(traceback.format_exc()))
     return residual_tumor_volume, resectable_volume, avg_resectability
+
+
+def compute_hd95(reference, result, voxelspacing=None, connectivity=1):
+    hd1 = __surface_distances(result, reference, voxelspacing, connectivity)
+    hd2 = __surface_distances(reference, result, voxelspacing, connectivity)
+    hd95 = np.percentile(np.hstack((hd1, hd2)), 95)
+    return hd95
+
+
+def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
+    """
+    The distances between the surface voxel of binary objects in result and their
+    nearest partner surface voxel of a binary object in reference.
+    """
+    result = np.atleast_1d(result.astype(np.bool_))
+    reference = np.atleast_1d(reference.astype(np.bool_))
+    if voxelspacing is not None:
+        voxelspacing = _ni_support._normalize_sequence(voxelspacing, result.ndim)
+        voxelspacing = np.asarray(voxelspacing, dtype=np.float64)
+        if not voxelspacing.flags.contiguous:
+            voxelspacing = voxelspacing.copy()
+
+    # binary structure
+    footprint = generate_binary_structure(result.ndim, connectivity)
+
+    # test for emptiness
+    if 0 == np.count_nonzero(result):
+        raise RuntimeError('The first supplied array does not contain any binary object.')
+    if 0 == np.count_nonzero(reference):
+        raise RuntimeError('The second supplied array does not contain any binary object.')
+
+        # extract only 1-pixel border line of objects
+    result_border = result ^ binary_erosion(result, structure=footprint, iterations=1)
+    reference_border = reference ^ binary_erosion(reference, structure=footprint, iterations=1)
+
+    # compute average surface distance
+    # Note: scipys distance transform is calculated only inside the borders of the
+    #       foreground objects, therefore the input has to be reversed
+    dt = distance_transform_edt(~reference_border, sampling=voxelspacing)
+    sds = dt[result_border]
+
+    return sds

@@ -14,6 +14,7 @@ numpy
 *.ckpt
 *.mhd
 *.raw
+*.json
 venv*/
 tmp_dependencies/
 build/
@@ -34,3 +35,4 @@ quickpkg/
 *.nii
 *.csv
 *.zip
+ANTsX/

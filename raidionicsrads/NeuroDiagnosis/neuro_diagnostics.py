@@ -1,20 +1,17 @@
-import os
-import logging
 import pandas as pd
 from copy import deepcopy
 import operator
-from medpy.metric.binary import hd95
 import collections
 from tqdm import tqdm
 from skimage.morphology import ball
-from scipy.ndimage.measurements import center_of_mass
-from scipy.ndimage import binary_opening, measurements, binary_closing
-from ..Processing.brain_processing import *
+from scipy.ndimage import binary_closing
 from .neuro_parameters import NeuroDiagnosisParameters
 from ..Utils.ants_registration import *
 from ..Utils.configuration_parser import ResourcesConfiguration
 from ..Utils.io import generate_cortical_structures_labels_for_slicer, generate_subcortical_structures_labels_for_slicer
-from .tumor_features_computation import *
+from raidionicsrads.Processing.tumor_features_computation import *
+from ..Utils.DataStructures.PatientStructure import PatientParameters
+from ..Pipelines.PipelineStructure import Pipeline
 
 
 class NeuroDiagnostics:
@@ -57,6 +54,13 @@ class NeuroDiagnostics:
         """
         start_time = time.time()
         intermediate_time = time.time()
+
+
+
+        pip = Pipeline(ResourcesConfiguration.getInstance().pipeline_filename)
+        patient_parameters = PatientParameters(id="Patient",
+                                               patient_filepath=ResourcesConfiguration.getInstance().input_folder)
+        patient_parameters = pip.execute(patient_parameters=patient_parameters)
 
         logging.info('LOG: Reporting - 7 steps.')
         # Generating the brain mask for the input file
@@ -112,7 +116,7 @@ class NeuroDiagnostics:
 
         # Computing tumor location and statistics
         logging.info("LOG: Reporting - Parameters computation and report generation - Begin (6/7)")
-        self.__compute_statistics()
+        self.compute_statistics()
         self.diagnosis_parameters.to_txt(self.output_report_filepath)
         self.diagnosis_parameters.to_csv(self.output_report_filepath[:-4] + '.csv')
         self.diagnosis_parameters.to_json(self.output_report_filepath[:-4] + '.json')
@@ -241,7 +245,7 @@ class NeuroDiagnostics:
             tumor_mask_filename = os.path.join(ResourcesConfiguration.getInstance().output_folder,
                                                'labels_Tumor.nii.gz')
             tumor_mask_ni = load_nifti_volume(tumor_mask_filename)
-            tumor_mask = tumor_mask_ni.get_data()[:].astype('uint8')
+            tumor_mask = tumor_mask_ni.get_fdata()[:].astype('uint8')
 
             # final_tumor_mask = np.zeros(tumor_pred.shape)
             # # Only background and target as classes, so index 1 is the only one needed
@@ -291,7 +295,7 @@ class NeuroDiagnostics:
             for i, elem in enumerate(tqdm(ResourcesConfiguration.getInstance().subcortical_structures['MNI'][s]['Singular'].keys())):
                 raw_filename = ResourcesConfiguration.getInstance().subcortical_structures['MNI'][s]['Singular'][elem]
                 raw_tract_ni = nib.load(raw_filename)
-                raw_tract = raw_tract_ni.get_data()[:]
+                raw_tract = raw_tract_ni.get_fdata()[:]
                 raw_tract[raw_tract < bcb_tracts_cutoff] = 0
                 raw_tract[raw_tract >= bcb_tracts_cutoff] = 1
                 raw_tract = raw_tract.astype('uint8')
@@ -313,10 +317,10 @@ class NeuroDiagnostics:
                 interpolation='nearestNeighbor',
                 label='Subcortical-structures/' + s)
 
-    def __compute_statistics(self):
+    def compute_statistics(self):
         tumor_mask_registered_filename = os.path.join(self.registration_runner.registration_folder, 'input_segmentation_to_MNI.nii.gz')
         registered_tumor_ni = load_nifti_volume(tumor_mask_registered_filename)
-        registered_tumor = registered_tumor_ni.get_data()[:]
+        registered_tumor = registered_tumor_ni.get_fdata()[:]
 
         # @TODO. The tumor type is given by the user for now, no tumor classification yet!
         tumor_type = self.selected_model.split('_')[1]  # @TODO. Info should be stored somewhere else properly.
@@ -350,7 +354,7 @@ class NeuroDiagnostics:
 
         # Computing localisation and lateralisation for the whole tumor extent
         segmentation_ni = nib.load(ResourcesConfiguration.getInstance().runtime_tumor_mask_filepath)
-        segmentation_mask = segmentation_ni.get_data()[:]
+        segmentation_mask = segmentation_ni.get_fdata()[:]
         volume = compute_volume(volume=segmentation_mask, spacing=segmentation_ni.header.get_zooms())
         self.diagnosis_parameters.statistics['Main']['Overall'].original_space_tumor_volume = volume
         volume = compute_volume(volume=refined_image, spacing=registered_tumor_ni.header.get_zooms())
@@ -392,7 +396,7 @@ class NeuroDiagnostics:
         #
         #     # Generate the same clusters on the original segmentation mask
         #     tumor_mask_ni = nib.load(os.path.join(self.output_path, 'input_tumor_mask.nii.gz'))
-        #     tumor_mask = tumor_mask_ni.get_data()[:]
+        #     tumor_mask = tumor_mask_ni.get_fdata()[:]
         #     img_ero = binary_closing(tumor_mask, structure=kernel, iterations=1)
         #     tumor_clusters = measurements.label(img_ero)[0]
         #     refined_image = deepcopy(tumor_clusters)
@@ -437,7 +441,7 @@ class NeuroDiagnostics:
             Nothing
         """
         brain_lateralisation_mask_ni = load_nifti_volume(ResourcesConfiguration.getInstance().mni_atlas_lateralisation_mask_filepath)
-        brain_lateralisation_mask = brain_lateralisation_mask_ni.get_data()[:]
+        brain_lateralisation_mask = brain_lateralisation_mask_ni.get_fdata()[:]
         left, right, mid = compute_lateralisation(volume=volume, brain_mask=brain_lateralisation_mask)
         self.diagnosis_parameters.statistics[category]['Overall'].left_laterality_percentage = left
         self.diagnosis_parameters.statistics[category]['Overall'].right_laterality_percentage = right
@@ -462,7 +466,7 @@ class NeuroDiagnostics:
             map_filepath = ResourcesConfiguration.getInstance().mni_resection_maps['Probability']['Right']
 
         resection_probability_map_ni = nib.load(map_filepath)
-        resection_probability_map = resection_probability_map_ni.get_data()[:]
+        resection_probability_map = resection_probability_map_ni.get_fdata()[:]
         residual, resectable, average = compute_resectability_index(volume=volume,
                                                                     resectability_map=resection_probability_map)
         self.diagnosis_parameters.statistics[category]['Overall'].mni_space_expected_residual_tumor_volume = residual
@@ -473,7 +477,7 @@ class NeuroDiagnostics:
         logging.debug("Computing cortical structures location with {}.".format(reference))
         regions_data = ResourcesConfiguration.getInstance().cortical_structures['MNI'][reference]
         region_mask_ni = nib.load(regions_data['Mask'])
-        region_mask = region_mask_ni.get_data()
+        region_mask = region_mask_ni.get_fdata()
         lobes_description = pd.read_csv(regions_data['Description'])
 
         # Computing the lobe location for the center of mass
@@ -499,7 +503,7 @@ class NeuroDiagnostics:
             overlap = np.round(ratio_in_lobe * 100., 2)
             region_name = ''
             if reference == 'MNI':
-                region_name = '-'.join(lobes_description.loc[lobes_description['Label'] == li]['Region'].values[0].strip().split(' ')) + '_' + (lobes_description.loc[lobes_description['Label'] == li]['Laterality'].values[0].strip() if lobes_description.loc[lobes_description['Label'] == li]['Laterality'].values[0].strip() is not 'None' else '')
+                region_name = '-'.join(str(lobes_description.loc[lobes_description['Label'] == li]['Region'].values[0]).strip().split(' ')) + '_' + (str(lobes_description.loc[lobes_description['Label'] == li]['Laterality'].values[0]).strip() if str(lobes_description.loc[lobes_description['Label'] == li]['Laterality'].values[0]).strip() != 'None' else '')
             elif reference == 'Harvard-Oxford':
                 region_name = '-'.join(lobes_description.loc[lobes_description['Label'] == li]['Region'].values[0].strip().split(' '))
             else:
@@ -524,7 +528,7 @@ class NeuroDiagnostics:
         tracts_dict = ResourcesConfiguration.getInstance().subcortical_structures['MNI'][reference]['Singular']
         for i, tfn in enumerate(tracts_dict.keys()):
             reg_tract_ni = nib.load(tracts_dict[tfn])
-            reg_tract = reg_tract_ni.get_data()[:]
+            reg_tract = reg_tract_ni.get_fdata()[:]
             reg_tract[reg_tract < tract_cutoff] = 0
             reg_tract[reg_tract >= tract_cutoff] = 1
             overlap_volume = np.logical_and(reg_tract, volume).astype('uint8')
@@ -536,7 +540,7 @@ class NeuroDiagnostics:
             else:
                 dist = -1.
                 if np.count_nonzero(reg_tract) > 0:
-                    dist = hd95(volume, reg_tract, voxelspacing=reg_tract_ni.header.get_zooms(), connectivity=1)
+                    dist = compute_hd95(volume, reg_tract, voxelspacing=reg_tract_ni.header.get_zooms(), connectivity=1)
                 distances[tfn] = dist
                 overlaps[tfn] = 0.
 

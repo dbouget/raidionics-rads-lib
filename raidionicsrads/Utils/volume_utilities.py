@@ -1,8 +1,9 @@
 import numpy as np
 from copy import deepcopy
 from skimage.transform import resize
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_fill_holes, measurements
 from skimage.measure import regionprops
+from skimage.morphology import binary_dilation, ball
 from .configuration_parser import *
 
 
@@ -138,3 +139,42 @@ def volume_cropping(volume, mask, output_filename):
     :return:
     """
     pass
+
+
+def prediction_binary_dilation(prediction: np.ndarray, voxel_volume: float, arg: int) -> np.ndarray:
+    """
+    Perform iterative dilation over a binary segmentation mask. The dilation process continues until a volume
+    increase exceeding the provided arg is reached.\n
+    The dilation is not applied over the whole mask, but over each focus after performing a connected component step.
+
+    :param prediction: Binary segmentation mask to dilate
+    :param voxel_volume: Size of one volume voxel in cubic ml.
+    :param arg: Volume increase percentage to reach for stopping the dilation process.
+    :return: Dilated prediction as a numpy array, with same dimensions as the original volume
+    """
+    # @TODO. Should assert that the prediction file is binary
+    res = np.zeros(prediction.shape)
+
+    if np.count_nonzero(prediction) == 0:
+        logging.warning("[SegmentationRefinement] Step was skipped - Segmentation file is empty!")
+        res = prediction
+
+    # Identifying the different focus, for potential volume-based dilation
+    detection_labels = measurements.label(prediction)[0]
+    for c in range(1, np.max(detection_labels) + 1):
+        focus_img = np.zeros(detection_labels.shape)
+        focus_img[detection_labels == c] = 1
+        initial_focus_volume_ml = np.count_nonzero(focus_img) * voxel_volume
+        kernel = ball(radius=1)
+        stop_flag = False
+        while not stop_flag:
+            ori_focus_img = deepcopy(focus_img)
+            focus_img = binary_dilation(focus_img, footprint=kernel)
+            focus_volume_ml = np.count_nonzero(focus_img) * voxel_volume
+            if ((focus_volume_ml - initial_focus_volume_ml) / initial_focus_volume_ml) * 100 > arg:
+                focus_img = ori_focus_img
+                stop_flag = True
+        seg_dil = focus_img.astype('uint8')
+        res[seg_dil == 1] = 1
+
+    return res
